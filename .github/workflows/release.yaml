@@ -98,11 +98,12 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Echo release tag
-        run: echo "Release tag: ${{ steps.create_tag.outputs.tag }}"
+        run: |
+          echo "Release tag: ${{ steps.create_tag.outputs.tag }}"
 
       - name: Show release tag in summary
         run: |
-          echo "### 🚀 Release version" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Release version" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           echo "${{ steps.create_tag.outputs.tag }}" >> "$GITHUB_STEP_SUMMARY"
@@ -118,5 +119,5 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `🚀 Release created: \`${tag}\``
+              body: ` Release created: \`${tag}\``
             });
