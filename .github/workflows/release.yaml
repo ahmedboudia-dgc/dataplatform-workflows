@@ -1,0 +1,122 @@
+name: workflow-release
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - closed
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: workflow-release-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.create_tag.outputs.tag }}
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Fetch tags
+        run: git fetch --tags --force
+
+      - name: Determine source branch name
+        id: branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          BRANCH_NAME="${{ github.event.pull_request.head.ref }}"
+          echo "branch_name=${BRANCH_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Compute next release tag
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BRANCH_NAME="${{ steps.branch.outputs.branch_name }}"
+          LAST_TAG="$(git tag --list 'v*.*.*' --sort=-v:refname | head -n1)"
+
+          if [[ -z "$LAST_TAG" ]]; then
+            MAJOR=1
+            MINOR=0
+            PATCH=0
+          else
+            VERSION="${LAST_TAG#v}"
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+          fi
+
+          if [[ "$BRANCH_NAME" =~ ^(feat|feature)/breaking-change(/|$) ]]; then
+            MAJOR=$((MAJOR + 1))
+            MINOR=0
+            PATCH=0
+          elif [[ "$BRANCH_NAME" =~ ^(feat|feature)/ ]]; then
+            MINOR=$((MINOR + 1))
+            PATCH=0
+          elif [[ "$BRANCH_NAME" =~ ^fix/ ]]; then
+            PATCH=$((PATCH + 1))
+          else
+            PATCH=$((PATCH + 1))
+          fi
+
+          NEXT_TAG="v${MAJOR}.${MINOR}.${PATCH}"
+
+          echo "release_tag=${NEXT_TAG}" >> "$GITHUB_OUTPUT"
+          echo "Computed release tag: ${NEXT_TAG} from branch: ${BRANCH_NAME}"
+
+      - name: Create Git tag
+        id: create_tag
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TAG="${{ steps.version.outputs.release_tag }}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists"
+            exit 1
+          fi
+
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Echo release tag
+        run: echo "Release tag: ${{ steps.create_tag.outputs.tag }}"
+
+      - name: Show release tag in summary
+        run: |
+          echo "### 🚀 Release version" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ steps.create_tag.outputs.tag }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment release tag on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = "${{ steps.create_tag.outputs.tag }}";
+
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `🚀 Release created: \`${tag}\``
+            });
