@@ -1,0 +1,41 @@
+main:
+  params: [event]
+  steps:
+
+    # 1. Extract event info
+    - extract:
+        assign:
+          - bucket: ${event.data.bucket}
+          - name: ${event.data.name}
+          - input_file: ${"gs://" + bucket + "/" + name}
+          - split_path: ${text.split(name, "/")}
+          - filename: ${split_path[1]}
+          - flow_name: ${text.split(filename, "_")[0]}
+
+    # 2. Log input
+    - log_input:
+        call: sys.log
+        args:
+          text: ${"Launching Dataflow for file:" + input_file + " (flow=" + flow_name + ")"}
+
+    # 3. Launch Dataflow Flex Template
+    - launch_dataflow:
+        call: googleapis.dataflow.v1b3.projects.locations.flexTemplates.launch
+        args:
+          projectId: "sandbox-aboudia"
+          location: "europe-west1"
+          body:
+            launchParameter:
+              jobName: ${"ingest-" + flow_name}
+              containerSpecGcsPath: "gs://sandbox-aboudia-dataflow-staging/templates/template_batch_ingestion_sts.json"
+              parameters:
+                flow_name: ${flow_name}
+                input_file: ${input_file}
+                project_id: "sandbox-aboudia"
+                dataset: "dp_lake_normalized"
+                temp_gcs_location: "gs://dataflow-staging-europe-west1-610442283084/tmp"
+
+    # 4. Done
+    - done:
+        return: "OK"
+
